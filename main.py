@@ -19,7 +19,7 @@ connections = [
     ('One Plus 6', 'ahoythere', ('192.168.43.32', 8888)),
 ]
 
-con = connections[2]
+con = connections[4]
 
 air_pin = Pin(5, Pin.OUT)
 nut_pin = Pin(4, Pin.OUT)
@@ -30,27 +30,30 @@ f = open('deviceid')
 deviceid = int(f.read().strip()) # 24 bits
 f.close()
 
-interval = 5
-# if 'interval' not in os.listdir():
-#     interval = 1
-# else:
-#     f = open('interval')
-#     interval = int(f.read().strip())
-#     f.close()
+if 'interval' not in os.listdir():
+    interval = 1
+else:
+    f = open('interval')
+    interval = int(f.read().strip())
+    f.close()
 
-print('interval', interval)
+# print('interval', interval)
 
-air_interval = [1800, 60] # nutrient interval
-nut_interval = [259200, 4] # nutrient interval
+if 'airinterval' not in os.listdir():
+    air_interval = [1800, 60]
+else:
+    f = open('airinterval')
+    txt = f.read().strip()
+    air_interval = list(map(int, txt.split(',')))
+    f.close()
 
-def i2b (val, endianness='big'):
-    width = len("{0:b}".format(val))
-    width += 8 - ((width % 8) or 8)
-    fmt = '%%0%dx' % (width // 4)
-    s = unhexlify(fmt % val)
-    if endianness == 'little':
-        s = s[::-1]
-    return s
+if 'nutinterval' not in os.listdir():
+    nut_interval = [259200, 4]
+else:
+    f = open('nutinterval')
+    txt = f.read().strip()
+    nut_interval = list(map(int, txt.split(',')))
+    f.close()
 
 def connect_sock():
     s = usocket.socket(usocket.AF_INET, usocket.SOCK_STREAM)
@@ -66,12 +69,6 @@ def send_data(s):
     ba.append(nut) # nut
     s.send(ba)
 
-def zfill(s, width):
-    if len(s) < width:
-        return ("0" * (width - len(s))) + s
-    else:
-        return s
-
 sta = network.WLAN(network.STA_IF)
 sta.active(True)
 sta.connect(con[0], con[1])
@@ -82,7 +79,8 @@ print('connected to hotspot')
 while True:
     try:
         s = connect_sock()
-        register = bytearray([0]) + bytearray(i2b(deviceid))
+        print('socket connected')
+        register = bytearray([0]) + int.to_bytes(deviceid, 4, 'big')
         s.send(register)
         reconnect = False
         while True:
@@ -91,12 +89,14 @@ while True:
                 break
             try:
                 rsp = s.recv(1)
-                if rsp[0] == 48:
+                if rsp[0] == 0:
                     print('registered on server')
                 now = utime.ticks_ms()
                 last_send_time = now
                 last_nut_time = now
+                last_nut_on_time = 0
                 last_air_time = now
+                last_air_on_time = 0
                 while True:
                     try:
                         rsp = s.recv(1)
@@ -109,11 +109,11 @@ while True:
                             continue
                         cmd = rsp[0]
                         # print(cmd, type(cmd))
-                        if cmd == 48:
+                        if cmd == 0:
                             foo = 'data sent'
                         elif cmd == 1: # set data interval
                             interval = s.recv(4)
-                            interval = int(''.join([zfill('{0:b}'.format(x), 8) for x in interval]), 2)
+                            interval = int.from_bytes(interval, 'big')
                             f = open('interval', 'w')
                             f.write(str(interval))
                             f.close()
@@ -122,11 +122,17 @@ while True:
                             rsp = s.recv(8)
                             air_interval[0] = int.from_bytes(rsp[:4], 'big')
                             air_interval[1] = int.from_bytes(rsp[4:8], 'big')
+                            f = open('airinterval', 'w')
+                            f.write('%d,%d' % tuple(air_interval))
+                            f.close()
                             print('changing air interval to', air_interval)
                         elif cmd == 3: # set nutrient interval
                             rsp = s.recv(8)
                             nut_interval[0] = int.from_bytes(rsp[:4], 'big')
                             nut_interval[1] = int.from_bytes(rsp[4:8], 'big')
+                            f = open('nutinterval', 'w')
+                            f.write('%d,%d' % tuple(nut_interval))
+                            f.close()
                             print('changing nut interval to', nut_interval)
                         elif cmd == 4:
                             act = s.recv(1)
@@ -146,10 +152,16 @@ while True:
                                 last_send_time = now
                             if last_air_time + (int(air_interval[0]) * 1000) <= now:
                                 # do air
+                                air_pin.on()
                                 last_air_time = now
+                            if last_air_time + (int(air_interval[1]) * 1000) <= now:
+                                air_pin.off()
                             if last_nut_time + (int(nut_interval[0]) * 1000) <= now:
                                 # do air
+                                nut_pin.on()
                                 last_nut_time = now
+                            if last_nut_time + (int(nut_interval[1]) * 1000) <= now:
+                                nut_pin.off()
                             pass
                         else:
                             print('connection lost', e)
