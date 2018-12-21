@@ -1,13 +1,23 @@
 import socket
 import time
-import traceback
-# traceback.print_exc()
 import errno
+import os
+
+start_time = int(time.time())
+
+class UTime():
+    def time(self):
+        return int(time.time()) - start_time
+
+utime = UTime()
 
 deviceid = 1234567
 device = {'socket': None, 'connected': False, 'registered': False}
 s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 device['socket'] = s
+base_time = 0
+
+if 'data' not in os.listdir(): os.mkdir('data')
 
 def connect_sock():
     if not device['connected']:
@@ -29,6 +39,19 @@ data_send_interval = 9
 last_event_times = {}
 
 data = []
+
+def record_data(d):
+    if base_time:
+        event_time = base_time + (utime.time() * 1000)
+        filename = '%d' % event_time
+    else:
+        filename = '%d_%d' % (base_time, (utime.time() * 1000))
+    f = open(filename, 'w')
+    f.write(d)
+    f.close()
+
+def clear_data():
+    data.clear()
 
 def invalidate_connection():
     device['connected'] = False
@@ -52,22 +75,25 @@ def send(data):
         return ''
 
 def send_data(now):
-    if device['registered']:
+    if device['registered'] and base_time:
         try:
-            for i in data:
-                base_time = i[0]
-                _data = i[1]
-                ba = bytes([1] + _data)
-                device['socket'].send(ba)
-            print('sent data', len(data))
-            data.clear()
+            files = os.listdir('data')
+            for i in files:
+                filename = 'data/' + i
+                f = open(filename, 'w')
+                data = f.read()
+                f.close()
+                ba = bytes([1] + data)
+                device['socket'].send()
+                os.remove(filename)
+            print('sent data', len(files))
             last_event_times.update({'data_send': now})
         except Exception as e:
             if e.args[0] == errno.EPIPE:
                 invalidate_connection()
 
 def send_collected_data():
-    now = int(time.time())
+    now = utime.time()
     last_time = last_event_times.get('data_send', 0)
     threshold = last_time + data_send_interval
     if now >= threshold:
@@ -75,13 +101,13 @@ def send_collected_data():
         send_data(now)
 
 def collect_data():
-    now = int(time.time())
+    now = utime.time()
     last_time = last_event_times.get('data_collect', 0)
     threshold = last_time + data_collect_interval
     if now >= threshold:
         print('collect data')
-        _data = [time.time(), [100, 100, 100]]
-        data.append(_data)
+        data = bytearray([100, 100, 100])
+        record_data(data.decode('utf-8'))
         last_event_times.update({'data_collect': now})
 
 def do_pending_tasks():
@@ -97,7 +123,19 @@ while True:
             print('data ACK')
         elif rsp[0] == 6:
             stime = rsp[1:]
-            print('server time', int.from_bytes(stime, 'big'))
+            stime = int.from_bytes(stime, 'big')
+            print('server time %d' % stime)
+            base_time = stime
+            
             device['registered'] = True
+            for f in os.listdir('data'):
+                if '_' in f:
+                    times = f.split('_')
+                    filename = 'data/%s' % f
+                    ldiff = utime.time() - times[1]
+                    event_time = base_time - ldiff
+                    new_filename = 'data/%d' % event_time
+                    os.rename(filename, new_filename)
+
     do_pending_tasks()
     time.sleep(1)

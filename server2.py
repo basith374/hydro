@@ -1,9 +1,11 @@
 from twisted.internet import reactor, protocol, endpoints, task
 from twisted.protocols import basic
+import time
 
 class HydroProtocol(basic.LineReceiver):
     def __init__(self, devices):
         self.devices = devices
+        self.deviceid = 0
 
     def dataReceived(self, data):
         cmd = data[0]
@@ -19,7 +21,8 @@ class HydroProtocol(basic.LineReceiver):
         elif cmd == 1:
             wtr = data[1]
             nut = data[2]
-            print('data from', self.deviceid, (wtr, nut))
+            print('data from', self.deviceid, data)
+            # print('data from', self.deviceid, (wtr, nut))
             self.transport.write(b'\x00')
 
         elif cmd == 5:

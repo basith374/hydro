@@ -9,6 +9,10 @@ from machine import Pin
 
 print('init')
 
+#
+# required file dep: deviceid
+#
+
 connections = [
     (('18.223.99.121', 8888)),
     ('area 51', 'ahoythere', ('192.168.43.32', 8888)),
@@ -17,9 +21,11 @@ connections = [
     ('Decepticon', '1s2shunmu', ('192.168.11.18', 8888)),
     ('HAXX', 'random123', ('192.168.2.2', 8888)),
     ('One Plus 6', 'ahoythere', ('192.168.43.32', 8888)),
+    ('Area51', 'badsector99', ('192.168.0.106', 8888)), # basi pc
+    ('Area51', 'badsector99', ('13.250.41.251', 8008)), # rosh ec2
 ]
 
-con = connections[4]
+con = connections[8]
 
 air_pin = Pin(5, Pin.OUT)
 nut_pin = Pin(4, Pin.OUT)
@@ -99,16 +105,19 @@ while True:
                 last_air_on_time = 0
                 while True:
                     try:
-                        rsp = s.recv(1)
+                        rsp = s.recv(10)
                         if len(rsp) == 0:
                             print('connection lost')
                             reconnect = True
                             break
+                        print(type(rsp), len(rsp), rsp)
+                        if rsp:
+                            print('from server', rsp)
                         if rsp[0] == 0:
                             foo = rsp[0]
                             continue
                         cmd = rsp[0]
-                        # print(cmd, type(cmd))
+                        print('command', cmd, type(cmd))
                         if cmd == 0:
                             foo = 'data sent'
                         elif cmd == 1: # set data interval
@@ -119,7 +128,7 @@ while True:
                             f.close()
                             print('changing interval to', interval)
                         elif cmd == 2: # set air interval
-                            rsp = s.recv(8)
+                            rsp = rsp[1:9]
                             air_interval[0] = int.from_bytes(rsp[:4], 'big')
                             air_interval[1] = int.from_bytes(rsp[4:8], 'big')
                             f = open('airinterval', 'w')
@@ -127,7 +136,7 @@ while True:
                             f.close()
                             print('changing air interval to', air_interval)
                         elif cmd == 3: # set nutrient interval
-                            rsp = s.recv(8)
+                            rsp = rsp[1:9]
                             nut_interval[0] = int.from_bytes(rsp[:4], 'big')
                             nut_interval[1] = int.from_bytes(rsp[4:8], 'big')
                             f = open('nutinterval', 'w')
@@ -135,15 +144,15 @@ while True:
                             f.close()
                             print('changing nut interval to', nut_interval)
                         elif cmd == 4:
-                            act = s.recv(1)
-                            print('turning air pin', act[0])
-                            air_pin.on() if act[0] else air_pin.off()
-                        elif cmd == 5:
-                            act = s.recv(1)
-                            print('turning nut pin', act[0])
-                            nut_pin.on() if act[0] else nut_pin.off()
+                            pinno = int(rsp[1])
+                            if pinno > -1 and pinno < 9:    
+                                pin = Pin(pinno, Pin.OUT)
+                                act = rsp[2]
+                                print('turning pin %d %s' % (pinno, 'on' if act[0] else 'off'))
+                                pin.on() if act[0] else pin.off()
+                                s.send([0])
                         else:
-                            print(rsp)
+                            print('unrecognized')
                     except Exception as e:
                         if e.args[0] == errno.EAGAIN:
                             now = utime.ticks_ms()
